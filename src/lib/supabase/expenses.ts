@@ -22,15 +22,21 @@ export async function createExpense(
 
 /** ---------- saveALL ----------*/
 export async function saveAll(expenses: Expense[]) {
-  // Production mode - bulk upsert to Supabase
-  // const expensesToSave = expenses.map((expense) => ({
-  //   ...expense,
-  //   updatedAt: new Date().toISOString(),
-  // }));
   if (!supabase) throw new Error("Supabase not initialized");
+  const expensesToSave = expenses.map(({ id, amount, memberId, categoryId, tagId, date, description, createdAt }) => ({
+    id,
+    amount,
+    memberId,
+    categoryId,
+    tagId,
+    date,
+    description,
+    createdAt,
+    updatedAt: new Date().toISOString(),
+  }));
   const { data, error } = await supabase
     .from("expenses")
-    .upsert(expenses, { onConflict: "id" })
+    .upsert(expensesToSave, { onConflict: "id" })
     .select();
 
   if (error) throw error;

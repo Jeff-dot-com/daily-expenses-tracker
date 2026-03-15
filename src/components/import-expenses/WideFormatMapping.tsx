@@ -180,7 +180,7 @@ export function WideFormatMappingComponent() {
               </SelectTrigger>
               <SelectContent>
                 {Array.from({ length: 26 }, (_, i) => {
-                  const year = (2000 + i).toString();
+                  const year = (2020 + i).toString();
                   return (
                     <SelectItem key={year} value={year}>
                       {year}

@@ -82,7 +82,7 @@ const CSVImportContext = createContext<CSVImportContextType | undefined>(
 
 export function CSVImportProvider({ children }: { children: React.ReactNode }) {
   const now = new Date();
-  const { saveAll } = useExpenseMutations(now.getFullYear(), now.getMonth());
+  const { saveAllAsync } = useExpenseMutations(now.getFullYear(), now.getMonth());
 
   const [documentStyle, setDocumentStyle] = useState<DocumentStyle | null>(
     null,
@@ -291,7 +291,7 @@ export function CSVImportProvider({ children }: { children: React.ReactNode }) {
   // Save function
   const handleSave = async () => {
     try {
-      await saveAll(mappedData);
+      await saveAllAsync(mappedData);
       toast.success(`Successfully imported ${mappedData.length} expenses`);
       setStep("upload");
     } catch (error) {

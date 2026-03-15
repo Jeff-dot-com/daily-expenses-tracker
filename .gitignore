@@ -40,5 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# script output
+# script
 scripts/output/
+scripts/input/
