@@ -13,12 +13,11 @@ type AITransaction = {
   description: string;
   amount: number;
   categoryId?: string;
-  categoryName?: string;
+  tagId?: string;
 };
 
 export async function POST(request: NextRequest) {
   try {
-    // Check if Gemini is configured
     if (!genAI) {
       return NextResponse.json(
         { error: "Gemini API key not configured" },
@@ -33,41 +32,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Convert file to base64
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const base64 = buffer.toString("base64");
 
-    // Create prompt with category matching
-    const prompt = `
-You are a bank statement parser. Extract ALL transactions from this PDF bank statement.
-
-Available categories to match:
-${DEFAULT_CATEGORIES.map((c) => `- ${c.name} (id: ${c.id})`).join("\n")}
-
-Available tags to match (Tags are locations where the expense was made at)
-${DEFAULT_TAGS.map((t) => `- ${t.name} (id: ${t.id})`).join("\n")}
-
-Return ONLY a valid JSON array (no markdown, no code blocks):
-Example:
-[
-  {
-    "date": "YYYY-MM-DD",
-    "description": "Merchant/payee name",
-    "amount": 123.45,
-    "categoryId": "1",
-    "tagId: "costco",
-    "memberId": "1"
-  }
-]
+    // 1. Move logic to System Instruction
+    const systemInstruction = `
+You are a specialized bank statement parser. Your goal is to extract every single transaction from the provided PDF.
 
 ${GEMINI_PDF_RULES}
 
-Extract all transactions now.`;
+Available categories (use the id):
+${DEFAULT_CATEGORIES.map((c) => `- ${c.name} (id: ${c.id})`).join("\n")}
 
-    // Use Gemini Flash (free tier)
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-001" });
+Available tags (use the id):
+${DEFAULT_TAGS.map((t) => `- ${t.name} (id: ${t.id})`).join("\n")}
 
+Return the data as a JSON array of objects. 
+Each object MUST follow this schema:
+{
+  "date": "YYYY-MM-DD",
+  "description": "Merchant name",
+  "amount": number,
+  "categoryId": "string",
+  "tagId": "string"
+}
+
+If you cannot find a specific category, default to categoryId "3".
+Important: Return ONLY the JSON array. No markdown formatting.`;
+
+    // 2. Initialize model with system instructions
+    // Note: 1.5-flash is the current stable workhorse for free-tier PDF OCR
+    const model = genAI.getGenerativeModel({
+      generationConfig: { responseMimeType: "application/json" },
+      model: "gemini-2.5-flash",
+      systemInstruction: systemInstruction,
+    });
+
+    // 3. Simple prompt for the content call
     const result = await model.generateContent([
       {
         inlineData: {
@@ -75,75 +77,58 @@ Extract all transactions now.`;
           mimeType: file.type,
         },
       },
-      prompt,
+      "Extract all transactions from the attached bank statement.",
     ]);
 
     const response = await result.response;
     const text = response.text();
 
-    // Parse JSON response
-    let transactions;
+    let transactions: AITransaction[];
     try {
-      // Remove markdown code blocks if present
-      const cleaned = text
-        .replace(/```json\n?/g, "")
-        .replace(/```\n?/g, "")
-        .trim();
-      transactions = JSON.parse(cleaned);
-    } catch (error: unknown) {
-      console.error("Failed to parse AI response:", text);
+      transactions = JSON.parse(text);
+    } catch (error) {
+      console.error("JSON Parsing failed. Raw text:", text);
       return NextResponse.json(
-        { details: text, error: `Failed to parse AI response: ${error}` },
+        { details: text, error: "AI returned invalid JSON" },
         { status: 500 },
       );
     }
 
-    // Validate and transform to Expense format
-    const expenses: Expense[] = (transactions as AITransaction[]).map(
-      (t, index) => ({
-        amount: parseFloat(String(t.amount)),
-        categoryId: t.categoryId || "3",
-        createdAt: new Date(),
-        date: new Date(t.date),
-        description: t.description || "",
-        id: `temp-${Date.now()}-${index}`,
-        memberId: "1",
-        tagId: null,
-        updatedAt: new Date(),
-      }),
-    );
+    const expenses: Expense[] = transactions.map((t, index) => ({
+      amount: parseFloat(String(t.amount)),
+      categoryId: t.categoryId || "3",
+      createdAt: new Date(),
+      date: new Date(t.date),
+      description: t.description || "",
+      id: `temp-${Date.now()}-${index}`,
+      memberId: "1",
+      tagId: t.tagId || null,
+      updatedAt: new Date(),
+    }));
 
     return NextResponse.json({
       count: expenses.length,
       expenses,
       success: true,
     });
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error("PDF parsing error:", error);
 
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    const status = error?.status || 500;
+    const message = error?.message || "Internal Server Error";
 
-    // Check for rate limit error
-    if (
-      errorMessage.includes("429") ||
-      errorMessage.includes("rate limit") ||
-      errorMessage.includes("quota")
-    ) {
+    if (status === 429) {
       return NextResponse.json(
         {
           code: "RATE_LIMIT",
-          details: "You've hit the API rate limit. Please try again later.",
-          error: "Rate limit exceeded",
+          error:
+            "The free tier is currently busy. Please wait 60 seconds and try again.",
         },
         { status: 429 },
       );
     }
 
-    return NextResponse.json(
-      { details: errorMessage, error: "Failed to parse PDF" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

@@ -2,6 +2,8 @@
 
 Personal finance app for tracking expenses, managing debt/savings/loans, and visualizing spending.
 
+> **Note:** This project is being merged into `family-space`. See `/Users/usmankhalid/Documents/Personal Projects/family-space/SPEC.md` for the unified project specification. This repo is the reference source for: expenses page, yearly analytics, trackers, CSV/PDF import wizard.
+
 ## Tech Stack
 
 - **Framework**: Next.js 15 (App Router) + React 19
